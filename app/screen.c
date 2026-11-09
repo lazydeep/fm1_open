@@ -166,6 +166,13 @@ static void fm_init_voice(uint8_t patch[156])
     memcpy(patch + 145, "INIT VOICE", 10);
     patch[155] = 63;
 }
+/* DX7 tracks only; 0 on success, the edit is undoable. */
+static int fm_init_track(unsigned t)
+{
+    uint8_t patch[156];
+    fm_init_voice(patch);
+    return groove_fm_import(t, patch);
+}
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
 static struct groove_preset tone_clip;
 static uint32_t midi_seen[8], midi_until[8];
@@ -1394,7 +1401,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
-        text(8, 231, "EDIT BACK  HOLD EDIT MORE", 1, DIM, BACK);
+        text(8, 231, notice ? notice : "EDIT BACK  HOLD MORE  EDIT+SAVE INIT", 1, DIM, BACK);
     }
 }
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
@@ -1980,6 +1987,18 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         page = music_page;
         goto controls_done;
     }
+    /* EDIT+SAVE, in either order: DX7 init voice, then QUICK EDIT. SAVE
+     * pressed first has opened the project page; return from it. */
+    if ((controls->buttons & (BUTTON(EDIT) | BUTTON(SAVE))) == (BUTTON(EDIT) | BUTTON(SAVE)) &&
+        (pressed & (BUTTON(EDIT) | BUTTON(SAVE)))) {
+        edit_down = edit_long = 0;
+        if (page == PROJECT) page = project_return;
+        int r = groove_source_type(track) == GROOVE_DX7 ? fm_init_track(track) : -1;
+        notice = r ? "INIT VOICE: DX7 TRACKS ONLY" : "INIT VOICE - UNDO AVAILABLE";
+        notice_until = now + 2000U;
+        if (!r) { page = FM_QUICK; advanced_edit = 0; }
+        goto controls_done;
+    }
     if ((pressed & BUTTON(SEQ)) && ((controls->buttons & BUTTON(HOME)) ||
         (page == EFFECTS && effects_page == 2 && controls->buttons == BUTTON(SEQ)))) {
         groove_screen_tap(now);
@@ -2202,11 +2221,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 14) r = groove_edit_undo();
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
-            else if (action == 17) {
-                uint8_t patch[156];
-                fm_init_voice(patch);
-                r = groove_fm_import(track, patch); /* DX7 tracks only; undo available */
-            } else if (action == 18) {
+            else if (action == 17) r = fm_init_track(track);
+            else if (action == 18) {
                 if (groove_source_type(track) == GROOVE_DX7) { page = NAME; name_cursor = 0; }
                 else r = -1;
             } else if (action == 19) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }

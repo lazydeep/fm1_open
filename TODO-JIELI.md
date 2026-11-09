@@ -17,8 +17,15 @@ Verifiche rimandate perché in questo ambiente il firmware non si può compilare
   - code e note tenute di `app/record_length.c` (circa 1,6 KB).
 - [ ] Nessun errore `-Wframe-larger-than=2560` (`scope_capture` tiene 224 B sullo stack).
 
-## 2. INIT DX7 VOICE (menu ACTIONS)
+## 2. INIT DX7 VOICE (EDIT+SAVE e menu ACTIONS)
 
+- [ ] EDIT+SAVE, in entrambi gli ordini, su una traccia DX7: carica INIT VOICE
+      e apre QUICK EDIT; tenendo premuto non si apre l'EDIT avanzato.
+- [ ] SAVE premuto per primo: la pagina di salvataggio progetto si chiude
+      senza salvare.
+- [ ] EDIT+SAVE su traccia non DX7: avviso "INIT VOICE: DX7 TRACKS ONLY",
+      nessuna modifica.
+- [ ] HOME poi EDIT apre ancora QUICK EDIT senza cancellare nulla.
 - [ ] SEQ+EDIT → INIT DX7 VOICE → SAVE → compare "REPLACE TRACK TIMBRE?" → SAVE.
 - [ ] Il suono è una sinusoide pura (OP1), nome "INIT VOICE", tutti gli operatori attivi.
 - [ ] HOME+SAVE (UNDO) ripristina la voce precedente.
