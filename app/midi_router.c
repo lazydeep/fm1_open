@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
 #include "fm1_engine_control.h"
+#include "record_length.h"
 #include <string.h>
 #ifdef FM1_HOST_TEST
 #include <stdatomic.h>
@@ -288,6 +289,7 @@ int groove_midi_local(const uint8_t *m, size_t n)
     if (!targets) return 0;
     int result = (config.flags & LOCAL_OFF) ? 0 : fm1_midi_post(m, n);
     if (result) { groove_midi_panic(); return result; }
+    if (!(config.flags & LOCAL_OFF)) record_length_event(0, m, n);
     if (!(config.flags & LIVE_OUT)) return 0;
     unsigned note = (m[0] & 0xe0U) == 0x80U;
     for (unsigned track=0;track<GROOVE_TRACKS;++track) if (targets & (1U<<track)) {
@@ -321,7 +323,7 @@ void fm1_app_midi_received(unsigned source, const uint8_t *m, size_t n)
     if (source >= 3 || !m || !n || n > 3) return;
     unsigned clock = m[0] == 0xf8 || m[0] == 0xfa || m[0] == 0xfb || m[0] == 0xfc || m[0] == 0xf2;
     if (clock && !groove_midi_clock_accept(source, m[0])) return;
-    (void)fm1_midi_post(m, n);
+    if (!fm1_midi_post(m, n)) record_length_event(1, m, n);
     if (m[0] == 0xff) enqueue(2, 0, (config.flags | config.thru) & 7U, 0xff, 0, 0);
     if (((config.thru >> 3) & 3U) == source && m[0] != 0xff && (m[0] < 0xf0 || clock)) {
         unsigned ports = config.thru & 7U & ~(1U << source) & fm1_midi_output_ports();

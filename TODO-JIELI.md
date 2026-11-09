@@ -13,7 +13,8 @@ Verifiche rimandate perché in questo ambiente il firmware non si può compilare
 - [ ] Controllare nel map file l'occupazione di RAM e Flash, prima e dopo:
   - `scope_ring` (1 KB, `app/audio_output.c`);
   - `samples` statico in `scope_capture` (1 KB) e `scope_trace` (224 B) in `app/screen.c`;
-  - il codice in più nella sezione `.volatile_ram_code` (`fm1_output_mix` è `FM1_AUDIO_CODE`).
+  - il codice in più nella sezione `.volatile_ram_code` (`fm1_output_mix` è `FM1_AUDIO_CODE`);
+  - code e note tenute di `app/record_length.c` (circa 1,6 KB).
 - [ ] Nessun errore `-Wframe-larger-than=2560` (`scope_capture` tiene 224 B sullo stack).
 
 ## 2. INIT DX7 VOICE (menu ACTIONS)
@@ -42,3 +43,17 @@ Verifiche rimandate perché in questo ambiente il firmware non si può compilare
 - [ ] Se l'interfaccia rallenta: aggiornare ogni 66 ms invece di 33, o ridurre
       l'altezza dell'area (`scope_capture`/`scope_draw`, parametro `height`).
 
+## 4. Durata delle note in registrazione dal vivo (issue #15)
+
+- [ ] Traccia NORMAL, PLAY + REC: una nota tenuta per più step si riascolta
+      lunga, senza ribattuta (step successivi con TIE, gate pieno sull'ultimo).
+- [ ] Note brevi: il gate dello step corrisponde alla durata (SEQ 2/8 STEP
+      DETAILS → GATE).
+- [ ] Accordi tenuti e note in legato (la nota precedente si ferma dove inizia
+      la successiva).
+- [ ] Note da MIDI esterno (DIN, USB, BLE), anche con clock MIDI esterno.
+- [ ] Con LOCAL OFF i tasti del pannello non registrano (come prima).
+- [ ] Batteria (808, Sampler) e registrazione a step (da fermo) invariate.
+- [ ] HOME+SAVE (UNDO) dopo una registrazione annulla anche le durate.
+- [ ] `fm1_millis()` e `groove_sequence_record_position()` funzionano dal task
+      di routing MIDI (`fm1_app_midi_received`).

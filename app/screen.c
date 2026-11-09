@@ -4,6 +4,7 @@
 #include "version.h"
 #include "fm1_engine_control.h"
 #include "audio_output.h"
+#include "record_length.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -2632,6 +2633,7 @@ controls_done:
 void groove_screen_control(void)
 {
     struct fm1_controls controls;
+    record_length_poll();
     fm1_controls_read(&controls);
     uint32_t now = fm1_millis(), key_down = controls.keys & ~previous_keys;
     unsigned master_changed = groove_master_update(controls.knob);
