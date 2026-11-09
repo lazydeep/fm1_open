@@ -25,7 +25,7 @@ Verifiche rimandate perché in questo ambiente il firmware non si può compilare
 - [ ] Su una traccia PLAY: funziona, e non sporca il progetto (comportamento di `groove_fm_import`).
 - [ ] DX7 PATCH NAME, BLUETOOTH / CLOCK e STOP ALL funzionano ancora dalla nuova posizione nel menu.
 
-## 3. Oscilloscopio (DX7 QUICK EDIT)
+## 3. Oscilloscopio (DX7 QUICK EDIT, EDIT ed ENV degli altri motori)
 
 - [ ] Il tracciato compare e resta stabile con una nota tenuta (prova su note
       basse, medie, alte).
@@ -35,12 +35,10 @@ Verifiche rimandate perché in questo ambiente il firmware non si può compilare
       rispetto al firmware senza oscilloscopio, a parità di patch e polifonia.
 - [ ] Con audio USB o Bluetooth in ingresso, l'oscilloscopio mostra solo lo
       strumento (previsto).
+- [ ] Pagine EDIT ed ENV di 303, PSG, Pluck, 808 e Sampler: parametri e
+      pad compattati leggibili, oscilloscopio sotto (y 132–177), nessuna
+      sovrapposizione con la riga d'aiuto a y 181.
 - [ ] Uscendo dalla pagina la cattura si ferma (`fm1_scope_enable(0)`).
 - [ ] Se l'interfaccia rallenta: aggiornare ogni 66 ms invece di 33, o ridurre
-      l'altezza dell'area (`SCOPE_H`).
+      l'altezza dell'area (`scope_capture`/`scope_draw`, parametro `height`).
 
-## 4. Analisi di spettro (quando sarà implementata)
-
-- [ ] Misurare il tempo della FFT nel task di controllo (`fm1_millis()` prima e
-      dopo, o un timer più fine) e verificare la reattività come al punto 3.
-- [ ] Controllare la RAM aggiuntiva (buffer di cattura a piena frequenza e buffer FFT).

@@ -858,9 +858,13 @@ static void tone_label(unsigned parameter, unsigned value, const fm1_param_t *p,
                                   : 0),
                 1);
 }
+static void scope_capture(unsigned top, unsigned height);
+static void scope_draw(unsigned top, unsigned height);
 static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE_PARAMS])
 {
     if (paint_rendering && (paint_top >= 195 || paint_top + PAINT_ROWS <= 32)) return;
+    enum { TONE_SCOPE_Y = 132, TONE_SCOPE_H = 46 };
+    if (!paint_rendering) scope_capture(TONE_SCOPE_Y, TONE_SCOPE_H);
     unsigned type = groove_source_type(track), part = tone_part(),
              pg = page == FM_ENV ? 0 : tone_pages[track][tone_slot()];
     const struct groove_view view = frame_views[track];
@@ -909,7 +913,7 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
             unsigned value = values[parameter];
             if (cache->tile_cache[i] == value) continue;
             cache->tile_cache[i] = value;
-            unsigned y = 78 + i * 24;
+            unsigned y = 70 + i * 16;
             char label[12];
             tone_label(parameter, value, p, label);
             text(8, y, p->name, 1, DIM, BACK);
@@ -927,12 +931,13 @@ static __attribute__((noinline)) void tone_draw(const uint8_t values[GROOVE_TONE
             if (cache->tile_cache[i] == selected)
                 continue;
             cache->tile_cache[i] = selected;
-            unsigned x = 8 + (i % 4) * 57, y = 74 + (i / 4) * 25;
+            unsigned x = 8 + (i % 4) * 57, y = 70 + (i / 4) * 20;
             uint16_t bg = selected ? colors[track] : PANEL;
-            paint_fill(x, y, 53, 22, bg);
-            text(x + 4, y + 8, groove_pad_label(track, i), 1, selected ? BACK : TEXT, bg);
+            paint_fill(x, y, 53, 18, bg);
+            text(x + 4, y + 6, groove_pad_label(track, i), 1, selected ? BACK : TEXT, bg);
         }
     }
+    if (paint_rendering) scope_draw(TONE_SCOPE_Y, TONE_SCOPE_H);
 }
 static __attribute__((noinline)) void mix_draw(const struct groove_view v[8])
 {
@@ -1251,12 +1256,13 @@ static void leds(const struct groove_view *v, unsigned visible)
         if (changed & (1U << key)) fm1_led_set(key, (bits >> key) & 1U);
     button_led_cache = (uint16_t)bits;
 }
-/* Master oscilloscope on DX7 QUICK EDIT. The control pass captures one
+/* Master oscilloscope on the sound pages. The control pass captures one
  * triggered, auto-scaled trace; every LCD band of that frame draws the same
- * trace, so a refresh never tears between bands. */
-enum { SCOPE_X = 8, SCOPE_Y = 114, SCOPE_W = 224, SCOPE_H = 74 };
-static uint8_t scope_trace[SCOPE_W];
-static void scope_capture(void)
+ * trace, so a refresh never tears between bands. Each page passes its own
+ * area; a height change redraws it. */
+enum { SCOPE_X = 8, SCOPE_W = 224 };
+static uint8_t scope_trace[SCOPE_W], scope_height;
+static void scope_capture(unsigned top, unsigned height)
 {
     static int16_t samples[FM1_SCOPE_SAMPLES];
     uint8_t trace[SCOPE_W];
@@ -1274,22 +1280,23 @@ static void scope_capture(void)
     unsigned shift = 0;
     while (shift < 4 && peak && (peak << (shift + 1)) <= 32767) ++shift;
     for (unsigned i = 0; i < SCOPE_W; ++i) {
-        int y = peak < 64 ? 0 : ((int)samples[first + i] << shift) * (SCOPE_H / 2 - 1) / 32768;
-        trace[i] = (uint8_t)(SCOPE_H / 2 - y);
+        int y = peak < 64 ? 0 : ((int)samples[first + i] << shift) * ((int)height / 2 - 1) / 32768;
+        trace[i] = (uint8_t)((int)height / 2 - y);
     }
-    if (memcmp(trace, scope_trace, sizeof trace)) {
+    if (height != scope_height || memcmp(trace, scope_trace, sizeof trace)) {
         memcpy(scope_trace, trace, sizeof trace);
-        paint_fill(SCOPE_X, SCOPE_Y, SCOPE_W, SCOPE_H, BACK); /* marks damage only */
+        scope_height = (uint8_t)height;
+        paint_fill(SCOPE_X, top, SCOPE_W, height, BACK); /* marks damage only */
     }
 }
-static void scope_draw(void)
+static void scope_draw(unsigned top, unsigned height)
 {
-    paint_fill(SCOPE_X, SCOPE_Y, SCOPE_W, SCOPE_H, BACK);
-    paint_fill(SCOPE_X, SCOPE_Y + SCOPE_H / 2, SCOPE_W, 1, PANEL);
+    paint_fill(SCOPE_X, top, SCOPE_W, height, BACK);
+    paint_fill(SCOPE_X, top + height / 2, SCOPE_W, 1, PANEL);
     unsigned last = scope_trace[0];
     for (unsigned i = 0; i < SCOPE_W; ++i) {
-        unsigned y = scope_trace[i], top = y < last ? y : last, bottom = y < last ? last : y;
-        paint_fill(SCOPE_X + i, SCOPE_Y + top, 1, bottom - top + 1, colors[track]);
+        unsigned y = scope_trace[i], high = y < last ? y : last, low = y < last ? last : y;
+        paint_fill(SCOPE_X + i, top + high, 1, low - high + 1, colors[track]);
         last = y;
     }
 }
@@ -1297,7 +1304,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 32) return;
     if (!paint_rendering) {
-        if (visible == FM_QUICK) scope_capture();
+        if (visible == FM_QUICK) scope_capture(114, 74);
         uint32_t sig = visible * 33U + action + (action_confirm << 8);
         sig = sig * 33U + cursor;
         sig = sig * 33U + source_preview;
@@ -1382,7 +1389,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(56, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
         text(70, 72, name, 2, TEXT, BACK);
         text(8, 96, "PRESETS VOICE  ENV  LFO  SEL SCALE", 1, DIM, BACK);
-        scope_draw();
+        scope_draw(114, 74);
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
@@ -1648,7 +1655,8 @@ static void draw(const struct fm1_ble_status *ble)
 {
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
-    fm1_scope_enable(visible == FM_QUICK);
+    fm1_scope_enable(visible == FM_QUICK || visible == TONE_EDIT ||
+                     (visible == FM_ENV && groove_source_type(track) != GROOVE_DX7));
     if (boot_active) {
         boot_phase = (frame_time - boot_started) / 120U;
         if (boot_phase > 8) boot_phase = 8;
