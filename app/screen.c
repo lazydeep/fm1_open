@@ -3,6 +3,7 @@
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
+#include "audio_output.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -1250,10 +1251,53 @@ static void leds(const struct groove_view *v, unsigned visible)
         if (changed & (1U << key)) fm1_led_set(key, (bits >> key) & 1U);
     button_led_cache = (uint16_t)bits;
 }
+/* Master oscilloscope on DX7 QUICK EDIT. The control pass captures one
+ * triggered, auto-scaled trace; every LCD band of that frame draws the same
+ * trace, so a refresh never tears between bands. */
+enum { SCOPE_X = 8, SCOPE_Y = 114, SCOPE_W = 224, SCOPE_H = 74 };
+static uint8_t scope_trace[SCOPE_W];
+static void scope_capture(void)
+{
+    static int16_t samples[FM1_SCOPE_SAMPLES];
+    uint8_t trace[SCOPE_W];
+    fm1_scope_read(samples, FM1_SCOPE_SAMPLES);
+    /* Newest rising zero crossing whose window still fits; free-run otherwise. */
+    unsigned first = FM1_SCOPE_SAMPLES - SCOPE_W;
+    for (unsigned i = FM1_SCOPE_SAMPLES - SCOPE_W; i > 8; --i)
+        if (samples[i - 1] < 0 && samples[i] >= 0 && samples[i - 8] < -64) { first = i; break; }
+    int peak = 0;
+    for (unsigned i = 0; i < SCOPE_W; ++i) {
+        int a = samples[first + i] < 0 ? -samples[first + i] : samples[first + i];
+        if (a > peak) peak = a;
+    }
+    /* Power-of-two zoom (1x..16x) keeps quiet voices readable. */
+    unsigned shift = 0;
+    while (shift < 4 && peak && (peak << (shift + 1)) <= 32767) ++shift;
+    for (unsigned i = 0; i < SCOPE_W; ++i) {
+        int y = peak < 64 ? 0 : ((int)samples[first + i] << shift) * (SCOPE_H / 2 - 1) / 32768;
+        trace[i] = (uint8_t)(SCOPE_H / 2 - y);
+    }
+    if (memcmp(trace, scope_trace, sizeof trace)) {
+        memcpy(scope_trace, trace, sizeof trace);
+        paint_fill(SCOPE_X, SCOPE_Y, SCOPE_W, SCOPE_H, BACK); /* marks damage only */
+    }
+}
+static void scope_draw(void)
+{
+    paint_fill(SCOPE_X, SCOPE_Y, SCOPE_W, SCOPE_H, BACK);
+    paint_fill(SCOPE_X, SCOPE_Y + SCOPE_H / 2, SCOPE_W, 1, PANEL);
+    unsigned last = scope_trace[0];
+    for (unsigned i = 0; i < SCOPE_W; ++i) {
+        unsigned y = scope_trace[i], top = y < last ? y : last, bottom = y < last ? last : y;
+        paint_fill(SCOPE_X + i, SCOPE_Y + top, 1, bottom - top + 1, colors[track]);
+        last = y;
+    }
+}
 static __attribute__((noinline)) void edit_page_draw(unsigned visible)
 {
     if (paint_rendering && paint_top + PAINT_ROWS <= 32) return;
     if (!paint_rendering) {
+        if (visible == FM_QUICK) scope_capture();
         uint32_t sig = visible * 33U + action + (action_confirm << 8);
         sig = sig * 33U + cursor;
         sig = sig * 33U + source_preview;
@@ -1337,10 +1381,8 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(26, 76, "/128", 1, DIM, BACK);
         text(56, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
         text(70, 72, name, 2, TEXT, BACK);
-        text(8, 102, "PRESETS SELECT VOICE", 1, TEXT, BACK);
-        text(8, 126, "HOLD EDIT OPERATOR PARAMETERS", 1, DIM, BACK);
-        text(8, 148, "ENV ENVELOPE    LFO MODULATION", 1, DIM, BACK);
-        text(8, 170, "SEL SCALING     KEYS PLAY", 1, DIM, BACK);
+        text(8, 96, "PRESETS VOICE  ENV  LFO  SEL SCALE", 1, DIM, BACK);
+        scope_draw();
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
@@ -1606,6 +1648,7 @@ static void draw(const struct fm1_ble_status *ble)
 {
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
+    fm1_scope_enable(visible == FM_QUICK);
     if (boot_active) {
         boot_phase = (frame_time - boot_started) / 120U;
         if (boot_phase > 8) boot_phase = 8;

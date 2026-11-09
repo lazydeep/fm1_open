@@ -7,7 +7,21 @@ static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
 static int16_t bluetooth_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
 
+static int16_t scope_ring[FM1_SCOPE_SAMPLES];
+static volatile unsigned scope_write;
+static volatile uint8_t scope_enabled;
+
 void fm1_output_reset(void) { output_gain = 0; }
+void fm1_scope_enable(unsigned enabled) { scope_enabled = enabled != 0; }
+void fm1_scope_read(int16_t *samples, unsigned count)
+{
+    if (count > FM1_SCOPE_SAMPLES) count = FM1_SCOPE_SAMPLES;
+    /* The ISR advances one block (32 samples) per 2.9 ms; a copy of the
+     * newest samples finishes long before it reaches them. */
+    unsigned end = scope_write;
+    for (unsigned i = 0; i < count; ++i)
+        samples[i] = scope_ring[(end - count + i) % FM1_SCOPE_SAMPLES];
+}
 static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 {
     /* Bias signed 24-bit PCM into [0, 2^24). Unsigned arithmetic also
@@ -19,6 +33,15 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
+    if (scope_enabled) {
+        /* Q23 L+R to 16 bits: (L + R) / 2 >> 8. */
+        unsigned at = scope_write;
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; i += 2U * FM1_SCOPE_DECIMATION) {
+            int32_t mono = (output[i] + output[i + 1]) >> 9;
+            scope_ring[at++ % FM1_SCOPE_SAMPLES] = (int16_t)(mono > 32767 ? 32767 : mono < -32768 ? -32768 : mono);
+        }
+        scope_write = at % FM1_SCOPE_SAMPLES;
+    }
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
     int delta = (int)target - (int)output_gain;
