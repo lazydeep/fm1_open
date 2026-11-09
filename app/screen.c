@@ -150,8 +150,20 @@ static const char *const source_names[] = {"DX7 FM", "BASS 303", "DRUM 808", "PS
 static const char *const actions[] = {"STEP DETAILS", "RHYTHM / RECORD", "COPY STEP", "COPY PAGE", "COPY TRACK",
     "PASTE STEP", "PASTE PAGE", "PASTE TRACK", "CLEAR STEP", "CLEAR PAGE", "CLEAR TRACK",
     "REPEAT TO 32", "REPEAT TO 48", "REPEAT TO 64", "UNDO / REDO", "COPY TIMBRE", "PASTE TIMBRE",
-    "DX7 PATCH NAME", "BLUETOOTH / CLOCK", "STOP ALL / REWIND"};
+    "INIT DX7 VOICE", "DX7 PATCH NAME", "BLUETOOTH / CLOCK", "STOP ALL / REWIND"};
 enum { ACTION_COUNT = sizeof actions / sizeof actions[0] };
+/* DX7 INIT VOICE in expanded VCED order (OP6 first): sine on OP1 only,
+ * full-level organ envelope, no modulation, all operators enabled. */
+static void fm_init_voice(uint8_t patch[156])
+{
+    static const uint8_t op[21] = {99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 7};
+    static const uint8_t global[19] = {99, 99, 99, 99, 50, 50, 50, 50, 0, 0, 1, 35, 0, 0, 0, 1, 0, 3, 24};
+    for (unsigned i = 0; i < 6; ++i) memcpy(patch + i * 21, op, sizeof op);
+    patch[5 * 21 + 16] = 99; /* OP1 output level */
+    memcpy(patch + 126, global, sizeof global);
+    memcpy(patch + 145, "INIT VOICE", 10);
+    patch[155] = 63;
+}
 static unsigned source_preview, action, action_confirm, tone_clip_ready;
 static struct groove_preset tone_clip;
 static uint32_t midi_seen[8], midi_until[8];
@@ -1274,7 +1286,7 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(8, 196, source_result ? "NOT ENOUGH MEMORY - RETRY" : "UNDO IN HOLD SEQ MENU", 1, source_result ? AMBER : DIM, BACK);
         text(8, 231, "ALGO / K2 CHOOSE  SAVE APPLY", 1, DIM, BACK);
     } else if (visible == ACTIONS) {
-        if (action_confirm) text(8, 38, "REPLACE PATTERN DATA?", 1, AMBER, BACK);
+        if (action_confirm) text(8, 38, action >= 16 ? "REPLACE TRACK TIMBRE?" : "REPLACE PATTERN DATA?", 1, AMBER, BACK);
         else {
             text(8, 38, "T", 1, DIM, BACK); number(16, 38, track + 1, 1, 1, TEXT, BACK);
             text(36, 38, "STEP", 1, DIM, BACK); number(68, 38, cursor + 1, 2, 1, ACCENT, BACK);
@@ -2121,7 +2133,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (pressed & BUTTON(SAVE)) {
             int r = 0;
             unsigned operation = action;
-            unsigned destructive = (action >= 7 && action <= 13) || action == 16;
+            unsigned destructive = (action >= 7 && action <= 13) || action == 16 || action == 17;
             if (destructive && !action_confirm) { action_confirm = 1; goto controls_done; }
             action_confirm = 0;
             if (action <= 1) { page = STEPS; seq_page = action + 1; step_follow = 0; cache->shown_page = ~0U; }
@@ -2139,9 +2151,13 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             else if (action == 15) { r = groove_timbre_export(track, (uint8_t *)&tone_clip, sizeof tone_clip); tone_clip_ready = !r; }
             else if (action == 16) r = tone_clip_ready ? groove_timbre_import(track, (uint8_t *)&tone_clip, sizeof tone_clip) : -1;
             else if (action == 17) {
+                uint8_t patch[156];
+                fm_init_voice(patch);
+                r = groove_fm_import(track, patch); /* DX7 tracks only; undo available */
+            } else if (action == 18) {
                 if (groove_source_type(track) == GROOVE_DX7) { page = NAME; name_cursor = 0; }
                 else r = -1;
-            } else if (action == 18) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }
+            } else if (action == 19) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
                 memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
@@ -2152,7 +2168,8 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 : operation == 3 ? "PAGE COPIED - CHOOSE DESTINATION"
                 : operation == 4 ? "TRACK COPIED - CHOOSE DESTINATION"
                 : operation == 5 ? "STEP PASTED - UNDO AVAILABLE"
-                : operation == 6 ? "PAGE PASTED - UNDO AVAILABLE" : "DONE";
+                : operation == 6 ? "PAGE PASTED - UNDO AVAILABLE"
+                : operation == 17 ? "INIT VOICE - UNDO AVAILABLE" : "DONE";
             notice_until = now + 2000U;
             cache->middle_cache = ~0U;
         }
